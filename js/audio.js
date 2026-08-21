@@ -20,6 +20,23 @@ MIST.Audio = (function () {
     return true;
   }
 
+  /* ---------- 音量控制（设置界面用） ---------- */
+  const settings = {
+    musicOn: true, musicVol: 0.35,
+    sfxOn: true, sfxVol: 0.5,
+  };
+
+  function applyVolumes() {
+    if (!ac) return;
+    musicGain.gain.value = settings.musicOn ? settings.musicVol : 0;
+    sfxGain.gain.value = settings.sfxOn ? settings.sfxVol : 0;
+  }
+
+  function setMusicOn(on) { settings.musicOn = on; applyVolumes(); }
+  function setSfxOn(on) { settings.sfxOn = on; applyVolumes(); }
+  function setMusicVol(v) { settings.musicVol = Math.max(0, Math.min(1, v)); applyVolumes(); }
+  function setSfxVol(v) { settings.sfxVol = Math.max(0, Math.min(1, v)); applyVolumes(); }
+
   function resume() {
     if (ensure() && ac.state === 'suspended') ac.resume();
   }
@@ -149,5 +166,10 @@ MIST.Audio = (function () {
     if (SFX[name]) SFX[name]();
   }
 
-  return { resume, playMusic, stopMusic, sfx, get enabled() { return !!ac; } };
+  return {
+    resume, playMusic, stopMusic, sfx,
+    setMusicOn, setSfxOn, setMusicVol, setSfxVol,
+    get settings() { return settings; },
+    get enabled() { return !!ac; },
+  };
 })();

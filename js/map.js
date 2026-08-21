@@ -226,6 +226,36 @@ window.MIST = window.MIST || {};
       ctx.fillStyle = P['4']; ctx.fillRect(10, 8, 2, 2);
       ctx.fillStyle = P.m; ctx.fillRect(3, 4, 10, 1); ctx.fillRect(3, 10, 10, 1);
     });
+    // 锁门（带锁孔，需要钥匙）
+    T.lockedDoor = tileCanvas((ctx) => {
+      ctx.fillStyle = P.m; ctx.fillRect(1, 0, 14, 16);
+      ctx.fillStyle = P.n; ctx.fillRect(2, 1, 12, 15);
+      ctx.fillStyle = P.m;
+      ctx.fillRect(2, 1, 12, 2); ctx.fillRect(2, 1, 2, 15); ctx.fillRect(12, 1, 2, 15);
+      ctx.fillStyle = P['4'];
+      ctx.fillRect(6, 5, 4, 4); ctx.fillRect(7, 9, 2, 3); // 金锁
+      ctx.fillStyle = P.m; ctx.fillRect(7, 6, 2, 2);
+    });
+    // 压力板（未踩下）
+    T.plate = tileCanvas((ctx) => {
+      ctx.fillStyle = P.e; ctx.fillRect(2, 2, 12, 12);
+      ctx.fillStyle = P.d; ctx.fillRect(3, 3, 10, 10);
+      ctx.fillStyle = P['9']; ctx.fillRect(5, 5, 6, 6);
+      ctx.fillStyle = P.b; ctx.fillRect(6, 6, 2, 2);
+    });
+    // 压力板（踩下）
+    T.plateOn = tileCanvas((ctx) => {
+      ctx.fillStyle = P.e; ctx.fillRect(2, 2, 12, 12);
+      ctx.fillStyle = P['7']; ctx.fillRect(3, 3, 10, 10);
+      ctx.fillStyle = P.w; ctx.fillRect(5, 5, 6, 6);
+      ctx.fillStyle = P.c; ctx.fillRect(6, 6, 2, 2);
+    });
+    // 压力板控制的机关门（石栅栏门）
+    T.gate = tileCanvas((ctx) => {
+      ctx.fillStyle = P['0']; ctx.fillRect(0, 0, 16, 16);
+      ctx.fillStyle = P.e; ctx.fillRect(1, 0, 3, 16); ctx.fillRect(7, 0, 3, 16); ctx.fillRect(13, 0, 3, 16);
+      ctx.fillStyle = P.d; ctx.fillRect(0, 3, 16, 2); ctx.fillRect(0, 11, 16, 2);
+    });
     return T;
   }
 
@@ -236,13 +266,14 @@ window.MIST = window.MIST || {};
     constructor(def) {
       this.def = def;
       this.theme = def.theme;
-      this.tiles = def.tiles;
+      this.tiles = def.tiles.map((r) => r.split('')); // 转为可变二维数组
       this.h = this.tiles.length;
       this.w = this.tiles[0].length;
       this.T = makeThemeTiles(this.theme);
       this.pxW = this.w * TS;
       this.pxH = this.h * TS;
       this.crystals = {}; // 机关激活状态 key: tx,ty
+      this.plates = (def.plates || []).map((p) => ({ ...p, on: false }));
     }
 
     at(tx, ty) {
@@ -250,9 +281,16 @@ window.MIST = window.MIST || {};
       return this.tiles[ty][tx];
     }
 
+    setTile(tx, ty, c) {
+      if (tx < 0 || ty < 0 || tx >= this.w || ty >= this.h) return;
+      this.tiles[ty][tx] = c;
+    }
+
     isSolid(tx, ty) {
       const c = this.at(tx, ty);
       if (c === '+') return !this.crystals[tx + ',' + ty]; // 机关未激活时为障碍
+      if (c === 'G') return true;  // 压力板机关门（由板联动控制开合）
+      if (c === 'M') return true;  // 锁门（钥匙开启后变 '.'）
       return '#~TBXLrO'.includes(c);
     }
 
@@ -284,13 +322,27 @@ window.MIST = window.MIST || {};
           const v = hash2(tx, ty);
           const dx = tx * TS - cam.x, dy = ty * TS - cam.y;
           switch (c) {
-            case '.': case '+':
+            case '.': case '+': case 'Z':
               ctx.drawImage(this.T.floor[v % this.T.floor.length], dx, dy);
               break;
             case 'D':
               ctx.drawImage(this.T.floor[v % this.T.floor.length], dx, dy);
               ctx.drawImage(this.T.door, dx, dy);
               break;
+            case 'M':
+              ctx.drawImage(this.T.floor[v % this.T.floor.length], dx, dy);
+              ctx.drawImage(this.T.lockedDoor, dx, dy);
+              break;
+            case 'G':
+              ctx.drawImage(this.T.floor[v % this.T.floor.length], dx, dy);
+              ctx.drawImage(this.T.gate, dx, dy);
+              break;
+            case 'P': {
+              ctx.drawImage(this.T.floor[v % this.T.floor.length], dx, dy);
+              const plate = this.plates.find((p) => p.x === tx && p.y === ty);
+              ctx.drawImage(plate && plate.on ? this.T.plateOn : this.T.plate, dx, dy);
+              break;
+            }
             case ',': // 小路
               if (this.T.road) ctx.drawImage(this.T.road[v % this.T.road.length], dx, dy);
               else ctx.drawImage(this.T.floor[v % this.T.floor.length], dx, dy);
@@ -345,6 +397,51 @@ window.MIST = window.MIST || {};
           if (c === '+') {
             ctx.drawImage(this.crystals[tx + ',' + ty] ? this.T.crystalOn : this.T.crystal, dx, dy);
           }
+          // 钥匙（浮动动画）
+          if (c === 'Z') {
+            const bob = Math.sin(time * 3 + tx) * 2;
+            ctx.drawImage(MIST.Sprites.key, dx + 4, dy + 3 + bob);
+            MIST.Draw.light(ctx, dx + 8, dy + 8, 12, '#ffcd75', 0.3);
+          }
+        }
+      }
+    }
+
+    /* 压力板联动（冰火人式双角色谜题核心）：
+     * 任一角色（主角或跟随者）站在板上即激活；
+     * 多块板可 OR 控制同一道门；全部松开时门关闭恢复 */
+    updatePlates(game) {
+      const chars = [
+        { x: game.player.x, y: game.player.y },
+        { x: game.player.follower.x, y: game.player.follower.y },
+      ];
+      let changed = false;
+      for (const plate of this.plates) {
+        const was = plate.on;
+        plate.on = chars.some((c) => Math.floor(c.x / TS) === plate.x && Math.floor(c.y / TS) === plate.y);
+        if (was !== plate.on) changed = true;
+      }
+      if (changed) this.syncGates();
+    }
+
+    syncGates() {
+      const gatePlates = {};
+      for (const p of this.plates) {
+        for (const d of p.doors) {
+          const k = d[0] + ',' + d[1];
+          (gatePlates[k] = gatePlates[k] || []).push(p);
+        }
+      }
+      for (const k in gatePlates) {
+        const [gx, gy] = k.split(',').map(Number);
+        if (gatePlates[k].some((p) => p.on)) {
+          if (this.at(gx, gy) === 'G') {
+            this.setTile(gx, gy, '.');
+            MIST.Audio.sfx('door');
+            MIST.Particles.burst(gx * TS + 8, gy * TS + 8, 8, '#73eff7', 40);
+          }
+        } else if (this.at(gx, gy) === '.') {
+          this.setTile(gx, gy, 'G');
         }
       }
     }

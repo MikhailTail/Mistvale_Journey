@@ -9,11 +9,13 @@ window.MIST = window.MIST || {};
 
   class Game {
     constructor() {
-      this.state = 'title';   // title / card / play / pause / help / dead / ending
+      this.state = 'title';   // title / card / play / pause / help / settings / dead / ending
       this.flags = {};
       this.fadeT = 0; this.fadeDir = 0; this.fadeCb = null;
       this.cardT = 0; this.cardData = null;
       this.pauseSel = 0; this.deathT = 0; this.endingT = 0;
+      this.settingsSel = 0;   // 设置界面选中项
+      this.settingsFrom = 'title'; // 设置返回目标
       this.shakeT = 0; this.shakeN = 0;
       this.dialogue = new MIST.DialogueSystem(this);
       this.cam = { x: 0, y: 0 };
@@ -34,14 +36,26 @@ window.MIST = window.MIST || {};
       this.sceneDef = def;
       this.map = new MIST.GameMap(def);
       const sp = spawnOverride || def.spawn;
+      // 保留跨场景的玩家成长（HP上限/钥匙/碎片/金币）
+      const keep = this.player ? {
+        hp: this.player.hp, maxHp: this.player.maxHp, keys: this.player.keys,
+        shards: this.player.shards, coins: this.player.coins,
+      } : null;
       this.player = new MIST.Entities.PlayerPair(sp.x, sp.y);
+      if (keep) Object.assign(this.player, keep);
       this.npcs = (def.npcs || []).map((n) => new MIST.Entities.NPC(n.x, n.y, n.id, n.dialog));
-      this.enemies = (def.enemies || []).map((e) => new MIST.Entities.Enemy(e.x, e.y, e.kind));
-      this.pickups = (def.pickups || []).map((p) => new MIST.Entities.Pickup(p.x, p.y, p.kind));
+      // 怪物刷新：重新进入地图即重生（Boss 例外——击败后不再复活）
+      this.enemies = (def.enemies || [])
+        .filter((e) => !(e.kind === 'boss' && this.flags.bossDefeated))
+        .map((e) => new MIST.Entities.Enemy(e.x, e.y, e.kind));
+      this.pickups = (def.pickups || [])
+        .filter((p) => !(p.kind === 'shard' && this.flags['shard_' + id]))
+        .map((p) => new MIST.Entities.Pickup(p.x, p.y, p.kind));
       this.projectiles = [];
       this.triggers = (def.triggers || []).map((t) => ({ ...t }));
       MIST.Particles.clear();
       MIST.Audio.playMusic(def.music);
+      this.player.soloMode = false; // 新场景默认跟随模式
       // 章节卡
       if (def.chapterCard && !this.flags['card_' + id]) {
         this.cardData = def.chapterCard;
@@ -109,6 +123,13 @@ window.MIST = window.MIST || {};
             MIST.Audio.sfx('select');
             this.fadeTo(() => this.startNewGame());
           }
+          if (E.pressed('down')) {
+            MIST.Audio.resume();
+            MIST.Audio.sfx('select');
+            this.settingsFrom = 'title';
+            this.state = 'settings';
+            this.settingsSel = 0;
+          }
           break;
         case 'card':
           this.cardT += dt;
@@ -121,14 +142,13 @@ window.MIST = window.MIST || {};
         case 'help':
           if (E.pressed('interact') || E.pressed('menu')) this.state = 'pause';
           break;
+        case 'settings': this.updateSettings(dt); break;
         case 'dead':
           this.deathT += dt;
           if (E.pressed('interact')) {
-            // 重生：当前场景，半血
-            const keep = { coins: this.player.coins, maxHp: this.player.maxHp };
+            // 重生：当前场景，半血（保留钥匙/碎片/上限成长）
             this.loadScene(this.sceneDef.id);
-            this.player.coins = keep.coins;
-            this.player.hp = Math.ceil(keep.maxHp / 2);
+            this.player.hp = Math.ceil(this.player.maxHp / 2);
             this.state = 'play';
           }
           break;
@@ -169,12 +189,14 @@ window.MIST = window.MIST || {};
         pr.update(dt, this);
         if (pr.dead) continue;
         if (pr.friendly) {
+          const big = pr.kind === 'bigBubble';
+          const prBox = big ? { x: pr.x - 8, y: pr.y - 8, w: 16, h: 16 } : { x: pr.x - 4, y: pr.y - 4, w: 8, h: 8 };
           for (const e of this.enemies) {
-            if (e.dead) continue;
-            if (MIST.Battle.aabb({ x: pr.x - 4, y: pr.y - 4, w: 8, h: 8 }, MIST.Battle.entityBox(e))) {
-              MIST.Battle.bubbleHit(e, this);
-              pr.dead = true;
-              break;
+            if (e.dead || pr.hitSet.has(e)) continue;
+            if (MIST.Battle.aabb(prBox, MIST.Battle.entityBox(e))) {
+              MIST.Battle.bubbleHit(e, this, big);
+              if (!big) { pr.dead = true; break; }
+              pr.hitSet.add(e); // 大泡泡穿透继续飞行
             }
           }
           // 泡泡激活机关
@@ -182,7 +204,7 @@ window.MIST = window.MIST || {};
             const tx = Math.floor(pr.x / 16), ty = Math.floor(pr.y / 16);
             if (this.map.at(tx, ty) === '+' && !this.map.crystals[tx + ',' + ty]) {
               MIST.Battle.bubbleHitCrystal(tx, ty, this);
-              pr.dead = true;
+              if (!big) pr.dead = true;
             }
           }
         } else {
@@ -194,6 +216,43 @@ window.MIST = window.MIST || {};
         }
       }
       this.projectiles = this.projectiles.filter((pr) => !pr.dead);
+
+      // 压力板联动（冰火人式谜题）
+      this.map.updatePlates(this);
+
+      // 钥匙拾取（踩到 'Z' 瓦片）
+      const ptx2 = Math.floor(p.x / 16), pty2 = Math.floor(p.y / 16);
+      if (this.map.at(ptx2, pty2) === 'Z') {
+        this.map.setTile(ptx2, pty2, '.');
+        p.keys++;
+        MIST.Audio.sfx('questDone');
+        MIST.Particles.burst(p.x, p.y - 8, 10, '#ffcd75', 45);
+        this.dialogue.start([
+          { who: 'narrator', lines: ['【钥匙】捡到一把生锈的钥匙。', '似乎能打开某扇锁住的门……'] },
+        ]);
+      }
+
+      // 锁门交互（面向的格子是 'M' 时按 E）
+      const fx = { down: [0, 1], up: [0, -1], left: [-1, 0], right: [1, 0] }[p.facing];
+      const mtx = Math.floor((p.x + fx[0] * 18) / 16), mty = Math.floor((p.y - 4 + fx[1] * 18) / 16);
+      const facingDoor = this.map.at(mtx, mty) === 'M';
+      if (facingDoor && E.pressed('interact') && !(this.dialogue.cooldown > 0)) {
+        if (p.keys > 0) {
+          p.keys--;
+          this.map.setTile(mtx, mty, '.');
+          MIST.Audio.sfx('door');
+          MIST.Audio.sfx('questDone');
+          MIST.Particles.burst(mtx * 16 + 8, mty * 16 + 8, 12, '#ffcd75', 50);
+          this.dialogue.start([
+            { who: 'narrator', lines: ['咔哒——钥匙转动，锁开了。'] },
+          ]);
+        } else {
+          MIST.Audio.sfx('hurt');
+          this.dialogue.start([
+            { who: 'narrator', lines: ['门锁得死死的。需要一把钥匙。'] },
+          ]);
+        }
+      }
 
       // 拾取物
       for (const pk of this.pickups) pk.update(dt, this);
@@ -275,13 +334,41 @@ window.MIST = window.MIST || {};
 
     updatePause(dt) {
       if (E.pressed('menu')) { this.state = 'play'; return; }
-      if (E.pressed('up')) { this.pauseSel = (this.pauseSel + 2) % 3; MIST.Audio.sfx('select'); }
-      if (E.pressed('down')) { this.pauseSel = (this.pauseSel + 1) % 3; MIST.Audio.sfx('select'); }
+      if (E.pressed('up')) { this.pauseSel = (this.pauseSel + 3) % 4; MIST.Audio.sfx('select'); }
+      if (E.pressed('down')) { this.pauseSel = (this.pauseSel + 1) % 4; MIST.Audio.sfx('select'); }
       if (E.pressed('interact')) {
         MIST.Audio.sfx('select');
         if (this.pauseSel === 0) this.state = 'play';
         else if (this.pauseSel === 1) this.state = 'help';
+        else if (this.pauseSel === 2) {
+          this.settingsFrom = 'pause';
+          this.state = 'settings';
+          this.settingsSel = 0;
+        }
         else this.fadeTo(() => this.toTitle());
+      }
+    }
+
+    /* 设置界面：音乐/音效开关 + 音量调节（即时生效） */
+    updateSettings(dt) {
+      const A = MIST.Audio;
+      const nRows = 4;
+      if (E.pressed('up')) { this.settingsSel = (this.settingsSel + nRows - 1) % nRows; MIST.Audio.sfx('select'); }
+      if (E.pressed('down')) { this.settingsSel = (this.settingsSel + 1) % nRows; MIST.Audio.sfx('select'); }
+      const adj = (d) => {
+        const s = A.settings;
+        if (this.settingsSel === 0) A.setMusicOn(!s.musicOn);
+        else if (this.settingsSel === 1) A.setMusicVol(s.musicVol + d * 0.1);
+        else if (this.settingsSel === 2) A.setSfxOn(!s.sfxOn);
+        else if (this.settingsSel === 3) A.setSfxVol(s.sfxVol + d * 0.1);
+        MIST.Audio.sfx('select');
+      };
+      if (E.pressed('left')) adj(-1);
+      if (E.pressed('right')) adj(1);
+      if (E.pressed('interact') || E.pressed('menu')) {
+        MIST.Audio.sfx('select');
+        this.state = this.settingsFrom;
+        if (this.settingsFrom === 'pause') this.pauseSel = 0; // 返回时回到"继续冒险"
       }
     }
 
@@ -317,6 +404,7 @@ window.MIST = window.MIST || {};
         case 'title': U.drawTitle(ctx, this.time); break;
         case 'card': U.drawChapterCard(ctx, this.cardData[0], this.cardData[1], this.cardT); break;
         case 'play': case 'pause': case 'help': case 'dead': this.drawWorld(ctx); break;
+        case 'settings': U.drawSettings(ctx, this.settingsSel, MIST.Audio.settings); break;
         case 'ending': U.drawEnding(ctx, this.endingT); break;
       }
 

@@ -37,21 +37,33 @@ MIST.Battle = (function () {
         for (let i = 0; i < 6; i++) {
           game.pickups.push(new MIST.Entities.Pickup(enemy.x + (Math.random() - 0.5) * 40, enemy.y + (Math.random() - 0.5) * 30, 'coin'));
         }
-        game.pickups.push(new MIST.Entities.Pickup(enemy.x, enemy.y, 'heart'));
+        game.pickups.push(new MIST.Entities.Pickup(enemy.x, enemy.y, 'potion'));
         game.onBossDefeated(enemy);
-      } else if (Math.random() < 0.4) {
-        game.pickups.push(new MIST.Entities.Pickup(enemy.x, enemy.y, Math.random() < 0.5 ? 'heart' : 'coin'));
+      } else {
+        // 塞尔达式掉落表：血瓶 18% / 心心 14% / 金币 28%
+        const r = Math.random();
+        if (r < 0.18) game.pickups.push(new MIST.Entities.Pickup(enemy.x, enemy.y, 'potion'));
+        else if (r < 0.32) game.pickups.push(new MIST.Entities.Pickup(enemy.x, enemy.y, 'heart'));
+        else if (r < 0.60) game.pickups.push(new MIST.Entities.Pickup(enemy.x, enemy.y, 'coin'));
       }
     }
   }
 
-  /* 泡泡命中敌人：小伤害 + 麻痹（致敬珊的控制定位） */
-  function bubbleHit(enemy, game) {
-    enemy.hp -= 0.34; // 三发一个 slug
-    enemy.hitFlash = 0.1;
-    enemy.stun = 1.6;
+  /* 泡泡命中敌人：小伤害 + 麻痹（致敬珊的控制定位）
+   * bigBubble：强麻痹 3s，穿透不消失（由调用方处理穿透） */
+  function bubbleHit(enemy, game, big) {
+    if (big) {
+      enemy.hp -= 1;
+      enemy.hitFlash = 0.12;
+      enemy.stun = 3;
+      MIST.Particles.burst(enemy.x, enemy.y - 8, 10, '#7de0d6', 55);
+    } else {
+      enemy.hp -= 0.34; // 三发一个 slug
+      enemy.hitFlash = 0.1;
+      enemy.stun = 1.6;
+      MIST.Particles.burst(enemy.x, enemy.y - 8, 6, '#7de0d6', 40);
+    }
     MIST.Audio.sfx('bubblePop');
-    MIST.Particles.burst(enemy.x, enemy.y - 8, 6, '#7de0d6', 40);
     if (enemy.hp <= 0) {
       damage(enemy, 0, null, 0, game); // 走统一死亡逻辑
     }

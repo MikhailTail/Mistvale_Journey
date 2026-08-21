@@ -51,6 +51,7 @@ window.MIST = window.MIST || {};
         if (s.dialog) { this.start(s.dialog, () => this._runNext()); return; }
         if (s.music) MIST.Audio.playMusic(s.music);
         if (s.setFlag) this.game.flags[s.setFlag] = true;
+        if (s.setSolo !== undefined) this.game.player.soloMode = s.setSolo;
         if (s.fn) { s.fn(this.game); }
         if (s.wait) { setTimeout(() => this._runNext(), s.wait); return; }
       }

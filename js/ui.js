@@ -79,7 +79,8 @@ window.MIST = window.MIST || {};
     if (Math.floor(t * 1.6) % 2 === 0) {
       D.text(ctx, '按 E 键 或 回车键 出发', 240, 168, { size: 12, color: '#f4f4f4', align: 'center' });
     }
-    D.text(ctx, 'WASD移动 · J攻击 · K切换角色 · E交互', 240, 254, { size: 9, color: '#566c86', align: 'center' });
+    D.text(ctx, '按 S 键 打开设置', 240, 192, { size: 10, color: '#94b0c2', align: 'center' });
+    D.text(ctx, 'WASD移动 · J攻击(长按蓄力) · K切换角色 · E交互', 240, 254, { size: 9, color: '#566c86', align: 'center' });
   }
 
   /* ---------- HUD ---------- */
@@ -102,19 +103,75 @@ window.MIST = window.MIST || {};
         ctx.restore();
       }
     }
+    // 心之碎片进度（3 枚合 1 心）
+    if (player.shards > 0) {
+      for (let i = 0; i < 3; i++) {
+        const sx = 10 + i * 10, sy = 22;
+        ctx.globalAlpha = i < player.shards ? 1 : 0.25;
+        ctx.drawImage(MIST.Sprites.shard, sx, sy);
+      }
+      ctx.globalAlpha = 1;
+    }
     // 金币
     ctx.fillStyle = '#ffcd75';
-    ctx.beginPath(); ctx.arc(16, 30, 4, 0, Math.PI * 2); ctx.fill();
-    D.text(ctx, '× ' + player.coins, 24, 26, { size: 10, color: '#ffcd75' });
+    ctx.beginPath(); ctx.arc(16, 40, 4, 0, Math.PI * 2); ctx.fill();
+    D.text(ctx, '× ' + player.coins, 24, 36, { size: 10, color: '#ffcd75' });
+
+    // 钥匙
+    if (player.keys > 0) {
+      ctx.drawImage(MIST.Sprites.key, 62, 33);
+      D.text(ctx, '× ' + player.keys, 72, 36, { size: 10, color: '#ffcd75' });
+    }
 
     // 右上：当前操控角色
     const who = player.active === 'loen' ? '洛恩·平底锅' : '小芽·芽光泡泡';
     const wc = player.active === 'loen' ? '#c4b57d' : '#7de0d6';
     D.text(ctx, who, 470, 10, { size: 10, color: wc, align: 'right' });
     D.text(ctx, 'K 切换', 470, 22, { size: 8, color: '#566c86', align: 'right' });
+    // 分头行动提示
+    if (player.soloMode) {
+      D.text(ctx, '【分头行动中】', 470, 34, { size: 8, color: '#c9c9e8', align: 'right' });
+    }
 
     // 左下：章节名
     D.text(ctx, chapterName, 10, 258, { size: 9, color: '#94b0c2' });
+  }
+
+  /* ---------- 设置界面（音乐/音效 开关+音量） ---------- */
+  function drawSettings(ctx, sel, audioSettings) {
+    ctx.fillStyle = 'rgba(13,14,22,.88)';
+    ctx.fillRect(0, 0, 480, 270);
+    D.text(ctx, '— 设 置 —', 240, 34, { size: 16, color: '#ffcd75', align: 'center' });
+
+    const rows = [
+      { label: '音 乐', type: 'toggle', value: audioSettings.musicOn },
+      { label: '音乐音量', type: 'slider', value: audioSettings.musicVol },
+      { label: '音 效', type: 'toggle', value: audioSettings.sfxOn },
+      { label: '音效音量', type: 'slider', value: audioSettings.sfxVol },
+    ];
+    rows.forEach((r, i) => {
+      const y = 84 + i * 30;
+      const selc = i === sel ? '#ffcd75' : '#94b0c2';
+      D.text(ctx, (i === sel ? '▶ ' : '  ') + r.label, 120, y, { size: 12, color: selc });
+      if (r.type === 'toggle') {
+        const on = r.value;
+        // 开关图形
+        ctx.fillStyle = on ? '#38b764' : '#5d275d';
+        ctx.fillRect(290, y - 2, 34, 14);
+        ctx.fillStyle = '#f4f4f4';
+        ctx.fillRect(on ? 310 : 292, y, 12, 10);
+        D.text(ctx, on ? '开' : '关', 340, y, { size: 11, color: on ? '#a7f070' : '#b13e53' });
+      } else {
+        // 音量条（10 格）
+        const n = Math.round(r.value * 10);
+        for (let b = 0; b < 10; b++) {
+          ctx.fillStyle = b < n ? (b < 4 ? '#b13e53' : b < 7 ? '#ef7d57' : '#a7f070') : '#333c57';
+          ctx.fillRect(290 + b * 10, y - 1, 7, 12);
+        }
+        D.text(ctx, '' + n, 396, y, { size: 11, color: '#94b0c2' });
+      }
+    });
+    D.text(ctx, 'A/D 或 ←/→ 调整 · W/S 选择 · E 返回', 240, 224, { size: 10, color: '#566c86', align: 'center' });
   }
 
   /* ---------- 暂停菜单 ---------- */
@@ -122,33 +179,34 @@ window.MIST = window.MIST || {};
     ctx.fillStyle = 'rgba(13,14,22,.75)';
     ctx.fillRect(0, 0, 480, 270);
     D.text(ctx, '— 暂 停 —', 240, 60, { size: 18, color: '#ffcd75', align: 'center' });
-    const items = ['继续冒险', '操作说明', '回到标题'];
+    const items = ['继续冒险', '操作说明', '设 置', '回到标题'];
     items.forEach((it, i) => {
       const c = i === sel ? '#ffcd75' : '#94b0c2';
-      D.text(ctx, (i === sel ? '▶ ' : '  ') + it, 240, 110 + i * 22, { size: 12, color: c, align: 'center' });
+      D.text(ctx, (i === sel ? '▶ ' : '  ') + it, 240, 105 + i * 22, { size: 12, color: c, align: 'center' });
     });
-    D.text(ctx, 'W/S 选择 · E 确认', 240, 200, { size: 9, color: '#566c86', align: 'center' });
+    D.text(ctx, 'W/S 选择 · E 确认', 240, 210, { size: 9, color: '#566c86', align: 'center' });
   }
 
   function drawHelp(ctx) {
     ctx.fillStyle = 'rgba(13,14,22,.85)';
     ctx.fillRect(0, 0, 480, 270);
-    D.text(ctx, '— 操 作 说 明 —', 240, 30, { size: 14, color: '#ffcd75', align: 'center' });
+    D.text(ctx, '— 操 作 说 明 —', 240, 26, { size: 14, color: '#ffcd75', align: 'center' });
     const rows = [
       ['WASD / 方向键', '移动'],
-      ['J / Z', '攻击（洛恩：平底锅 / 小芽：泡泡）'],
+      ['J 轻点 / 长按', '普攻 / 蓄力攻击（旋风斩·巨型泡泡）'],
       ['K / X', '切换操控角色'],
-      ['E / 空格 / 回车', '对话 · 交互 · 确认'],
-      ['ESC / I', '暂停'],
+      ['E / 空格 / 回车', '对话 · 开锁 · 确认'],
+      ['ESC / I', '暂停 · 设置'],
       ['', ''],
-      ['· 泡泡可以麻痹敌人，还能激活发 crystal 光的机关', ''],
-      ['· 两人共用血条，切换无消耗，活用二人之力！', ''],
+      ['· 泡泡麻痹敌人、激活水晶门；长按蓄力释放巨型穿透泡泡', ''],
+      ['· 搜寻钥匙打开锁门；集齐 3 枚心之碎片提升生命上限', ''],
+      ['· 分头行动时，待命的角色会原地踩住压力板——活用二人之力！', ''],
     ];
     rows.forEach((r, i) => {
-      D.text(ctx, r[0], 60, 70 + i * 20, { size: 10, color: '#73eff7' });
-      D.text(ctx, r[1], 200, 70 + i * 20, { size: 10, color: '#f4f4f4' });
+      D.text(ctx, r[0], 44, 60 + i * 19, { size: 10, color: '#73eff7' });
+      D.text(ctx, r[1], 176, 60 + i * 19, { size: 10, color: '#f4f4f4' });
     });
-    D.text(ctx, '按 E 返回', 240, 240, { size: 10, color: '#566c86', align: 'center' });
+    D.text(ctx, '按 E 返回', 240, 244, { size: 10, color: '#566c86', align: 'center' });
   }
 
   /* ---------- 章节过场卡 ---------- */
@@ -223,5 +281,5 @@ window.MIST = window.MIST || {};
     }
   }
 
-  MIST.UI = { drawTitle, drawHUD, drawPause, drawHelp, drawChapterCard, drawDeath, drawEnding };
+  MIST.UI = { drawTitle, drawHUD, drawPause, drawHelp, drawSettings, drawChapterCard, drawDeath, drawEnding };
 })();

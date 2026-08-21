@@ -766,5 +766,56 @@ window.MIST = window.MIST || {};
     '...2...',
   ]);
 
+  /* ---------- 塞尔达式道具 ---------- */
+  // 心之碎片（3 枚合成 1 心）
+  S.shard = mk([
+    '...22...',
+    '..2cc2..',
+    '.2cccc2.',
+    '.2c2c22.',
+    '.2c2c2..',
+    '..22c2..',
+    '...22...',
+  ]);
+  // 血瓶（回复 3 HP）
+  S.potion = mk([
+    '...cc...',
+    '...cc...',
+    '..2222..',
+    '.222222.',
+    '.222222.',
+    '.2c2222.',
+    '.222222.',
+    '..2222..',
+  ]);
+  // 钥匙（金色）
+  S.key = mk([
+    '.4444...',
+    '4....4..',
+    '4....4..',
+    '.4444...',
+    '..4.....',
+    '..44....',
+    '..4.....',
+    '..44....',
+  ]);
+  // 大泡泡（小芽蓄力攻击）
+  S.bigBubble = mk([
+    '....wwwwww....',
+    '..wwbbbbbbww..',
+    '.wbbccccccbbw.',
+    '.wbccccccccbw.',
+    'wbcwcccccccbww',
+    'wbcwcccccccbww',
+    'wbccccccccccbw',
+    'wbccccccccccbw',
+    'wbcwcccccccbww',
+    'wbcwcccccccbww',
+    '.wbccccccccbw.',
+    '.wbbccccccbbw.',
+    '..wwbbbbbbww..',
+    '....wwwwww....',
+  ]);
+
   MIST.Sprites = S;
 })();

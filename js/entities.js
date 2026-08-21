@@ -79,6 +79,8 @@ window.MIST = window.MIST || {};
       this.speed = 88;
       this.hp = 10; this.maxHp = 10;
       this.coins = 0;
+      this.keys = 0;               // 钥匙数（开锁门）
+      this.shards = 0;             // 心之碎片（3 枚 +1 心）
       this.attackCd = 0;
       this.attackT = 0;            // 攻击动画计时
       this.attackDir = 'down';
@@ -87,6 +89,10 @@ window.MIST = window.MIST || {};
       this.animT = 0;
       this.moving = false;
       this.stepT = 0;
+      this.charging = false;       // 蓄力状态
+      this.chargeT = 0;            // 蓄力时长
+      this.spinT = 0;              // 旋风斩动画
+      this.soloMode = false;       // 分头行动模式（另一角色原地待命）
       // 跟随者
       this.follower = { x: x, y: y + 14, facing: 'up', animT: 0, moving: false, tx: x, ty: y };
     }
@@ -94,7 +100,37 @@ window.MIST = window.MIST || {};
     get sprite() { return this.active === 'loen' ? S.loen : S.sprout; }
     get followSprite() { return this.active === 'loen' ? S.sprout : S.loen; }
 
+    /* 收集心之碎片：3 枚合成 1 颗心（塞尔达式成长） */
+    addShard(game) {
+      this.shards++;
+      MIST.Audio.sfx('questDone');
+      MIST.Particles.burst(this.x, this.y - 10, 14, '#ff9db0', 50);
+      if (this.shards >= 3) {
+        this.shards = 0;
+        this.maxHp += 2;
+        this.hp = this.maxHp;
+        MIST.Particles.burst(this.x, this.y - 10, 20, '#ef7d57', 70);
+        game.dialogue.start([
+          { who: 'narrator', lines: ['【心之碎片】三枚碎片合而为一！生命上限提升了！', '（当前上限：' + (this.maxHp / 2) + ' 颗心）'] },
+        ]);
+      } else {
+        game.dialogue.start([
+          { who: 'narrator', lines: ['【心之碎片】获得一枚心之碎片（' + this.shards + '/3）。', '集满三枚，生命上限便会提升。'] },
+        ]);
+      }
+    }
+
     swap() {
+      if (this.soloMode) {
+        // 分头行动：只切换操控，另一角色原地待命
+        this.active = this.active === 'loen' ? 'sprout' : 'loen';
+        this.attackT = 0;
+        this.attackCd = 0.15;
+        this.charging = false; this.chargeT = 0;
+        MIST.Particles.burst(this.x, this.y - 8, 8, '#c9c9e8', 35);
+        MIST.Audio.sfx('swap');
+        return;
+      }
       // 交换位置：跟随者走上前来
       const fx = this.follower.x, fy = this.follower.y, ff = this.follower.facing;
       this.follower.x = this.x; this.follower.y = this.y; this.follower.facing = this.facing;
@@ -102,6 +138,7 @@ window.MIST = window.MIST || {};
       this.active = this.active === 'loen' ? 'sprout' : 'loen';
       this.attackT = 0;
       this.attackCd = 0.15; // 切换后短冷却，防止连打（攻击冷却不跨角色残留）
+      this.charging = false; this.chargeT = 0;
       MIST.Particles.burst(this.x, this.y - 8, 10, '#7de0d6', 40);
       MIST.Audio.sfx('swap');
     }
@@ -118,6 +155,7 @@ window.MIST = window.MIST || {};
     cooldownTick(dt) {
       if (this.attackCd > 0) this.attackCd -= dt;
       if (this.attackT > 0) this.attackT -= dt;
+      if (this.spinT > 0) this.spinT -= dt;
     }
 
     moveTick(dt, game) {
@@ -157,31 +195,103 @@ window.MIST = window.MIST || {};
         this.swap();
         return;
       }
-      if (E.pressed('attack') && this.attackCd <= 0 && !game.dialogActive()) {
+      if (game.dialogActive()) { this.charging = false; this.chargeT = 0; return; }
+
+      /* 蓄力攻击（2D 塞尔达）：按住 J 蓄力，松开释放 */
+      if (E.down('attack') && this.attackCd <= 0) {
+        if (!this.charging) { this.charging = true; this.chargeT = 0; }
+        this.chargeT = Math.min(1, this.chargeT + dt);
+        // 蓄力粒子
+        if (this.chargeT > 0.3 && Math.random() < 0.3) {
+          const col = this.active === 'loen' ? '#ffcd75' : '#7de0d6';
+          const a = Math.random() * Math.PI * 2;
+          MIST.Particles.spawn(this.x + Math.cos(a) * 10, this.y - 8 + Math.sin(a) * 10, {
+            color: col, life: 0.3, vx: -Math.cos(a) * 25, vy: -Math.sin(a) * 25, grav: 0,
+          });
+        }
+        return;
+      }
+      if (this.charging && !E.down('attack')) {
+        // 松开：根据蓄力时长选择攻击方式
+        const charged = this.chargeT >= 0.45;
+        this.charging = false; this.chargeT = 0;
         this.attackDir = this.facing;
         if (this.active === 'loen') {
-          // 平底锅挥击
-          this.attackT = 0.22;
-          this.attackCd = 0.38;
-          MIST.Audio.sfx('swing');
-          const hit = this.attackBox();
-          for (const e of game.enemies) {
-            if (e.dead) continue;
-            if (MIST.Battle.aabb(hit, MIST.Battle.entityBox(e))) {
-              MIST.Battle.damage(e, 1, this.knockDir(), 90, game);
-            }
-          }
-          // 珊可激活机关（平底锅敲机关无效，机关只响应小芽）
+          if (charged) this.spinAttack(game);
+          else this.panAttack(game);
         } else {
-          // 能量泡泡
-          this.attackCd = 0.5;
-          MIST.Audio.sfx('bubble');
-          const dir = { down: [0, 1], up: [0, -1], left: [-1, 0], right: [1, 0] }[this.facing];
-          game.projectiles.push(new Projectile(
-            this.x + dir[0] * 10, this.y - 8 + dir[1] * 10,
-            dir[0] * 150, dir[1] * 150, 'bubble', true
-          ));
+          if (charged) this.bigBubbleAttack(game);
+          else this.bubbleAttack(game);
         }
+        return;
+      }
+    }
+
+    /* 普攻：平底锅挥击 */
+    panAttack(game) {
+      this.attackT = 0.22;
+      this.attackCd = 0.38;
+      MIST.Audio.sfx('swing');
+      const hit = this.attackBox();
+      for (const e of game.enemies) {
+        if (e.dead) continue;
+        if (MIST.Battle.aabb(hit, MIST.Battle.entityBox(e))) {
+          MIST.Battle.damage(e, 1, this.knockDir(), 90, game);
+        }
+      }
+    }
+
+    /* 蓄力：旋风斩（360° 范围，伤害 2，强击退） */
+    spinAttack(game) {
+      this.attackT = 0.34;
+      this.spinT = 0.34;
+      this.attackCd = 0.75;
+      MIST.Audio.sfx('bossRoar');
+      game.shake(5, 0.25);
+      const hit = { x: this.x - 26, y: this.y - 8 - 26, w: 52, h: 52 };
+      for (const e of game.enemies) {
+        if (e.dead) continue;
+        if (MIST.Battle.aabb(hit, MIST.Battle.entityBox(e))) {
+          const kx = e.x - this.x, ky = e.y - this.y;
+          const len = Math.hypot(kx, ky) || 1;
+          MIST.Battle.damage(e, 2, [kx / len, ky / len], 170, game);
+        }
+      }
+      // 环形粒子
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2;
+        MIST.Particles.spawn(this.x + Math.cos(a) * 20, this.y - 8 + Math.sin(a) * 20, {
+          color: '#ffcd75', life: 0.4, vx: Math.cos(a) * 60, vy: Math.sin(a) * 60, grav: 0,
+        });
+      }
+    }
+
+    /* 普攻：能量泡泡 */
+    bubbleAttack(game) {
+      this.attackCd = 0.5;
+      MIST.Audio.sfx('bubble');
+      const dir = { down: [0, 1], up: [0, -1], left: [-1, 0], right: [1, 0] }[this.facing];
+      game.projectiles.push(new Projectile(
+        this.x + dir[0] * 10, this.y - 8 + dir[1] * 10,
+        dir[0] * 150, dir[1] * 150, 'bubble', true
+      ));
+    }
+
+    /* 蓄力：巨型泡泡（穿透，强麻痹 3s，多段命中） */
+    bigBubbleAttack(game) {
+      this.attackCd = 0.9;
+      MIST.Audio.sfx('bubble');
+      MIST.Audio.sfx('heal');
+      const dir = { down: [0, 1], up: [0, -1], left: [-1, 0], right: [1, 0] }[this.facing];
+      game.projectiles.push(new Projectile(
+        this.x + dir[0] * 12, this.y - 8 + dir[1] * 12,
+        dir[0] * 110, dir[1] * 110, 'bigBubble', true
+      ));
+      for (let i = 0; i < 8; i++) {
+        const a = Math.random() * Math.PI * 2;
+        MIST.Particles.spawn(this.x + Math.cos(a) * 8, this.y - 8 + Math.sin(a) * 8, {
+          color: '#7de0d6', life: 0.35, vx: Math.cos(a) * 30, vy: Math.sin(a) * 30, grav: 0,
+        });
       }
     }
 
@@ -201,6 +311,8 @@ window.MIST = window.MIST || {};
 
     followTick(dt, game) {
       const f = this.follower;
+      // 分头行动模式：待命角色原地不动（冰火人式分工解谜）
+      if (this.soloMode) { f.moving = false; f.animT = 0; return; }
       // 目标：主角身后
       const back = { down: [0, -16], up: [0, 16], left: [16, 0], right: [-16, 0] }[this.facing];
       const tx = this.x + back[0], ty = this.y + back[1];
@@ -267,7 +379,7 @@ window.MIST = window.MIST || {};
       // 主角
       this.drawChar(ctx, cam, this.active, this.x, this.y, this.facing, this.moving, this.animT, this.invuln > 0);
       // 攻击特效：平底锅挥弧
-      if (this.attackT > 0 && this.active === 'loen') {
+      if (this.attackT > 0 && this.active === 'loen' && this.spinT <= 0) {
         const prog = 1 - this.attackT / 0.22;
         const angBase = { down: Math.PI / 2, up: -Math.PI / 2, left: Math.PI, right: 0 }[this.attackDir];
         const ang = angBase + (prog - 0.5) * 2.2;
@@ -284,6 +396,39 @@ window.MIST = window.MIST || {};
         ctx.beginPath();
         ctx.arc(this.x - cam.x, this.y - 8 - cam.y, 16, angBase - 1.1, angBase + 1.1);
         ctx.stroke();
+      }
+      // 旋风斩特效（蓄力攻击）
+      if (this.spinT > 0) {
+        const prog = 1 - this.spinT / 0.34;
+        const ang = prog * Math.PI * 4;
+        const px = this.x + Math.cos(ang) * 18 - cam.x;
+        const py = this.y - 8 + Math.sin(ang) * 18 - cam.y;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(ang);
+        ctx.drawImage(S.pan, -8, -5);
+        ctx.restore();
+        // 旋转光环
+        ctx.strokeStyle = `rgba(255,205,117,${0.8 * this.spinT / 0.34})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(this.x - cam.x, this.y - 8 - cam.y, 20 + prog * 8, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // 蓄力指示（角色身边聚气光圈）
+      if (this.charging && this.chargeT > 0.15) {
+        const col = this.active === 'loen' ? '#ffcd75' : '#7de0d6';
+        const r = 14 + this.chargeT * 10;
+        ctx.strokeStyle = col;
+        ctx.globalAlpha = 0.5 + Math.sin(MIST.Engine.time * 20) * 0.2;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(this.x - cam.x, this.y - 9 - cam.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        if (this.chargeT >= 0.45) {
+          MIST.Draw.text(ctx, '!', this.x - cam.x, this.y - 38 - cam.y, { size: 10, color: col, align: 'center' });
+        }
       }
       // 主角头顶标记（当前操控）
       const bob = Math.sin(MIST.Engine.time * 5) * 1.5;
@@ -340,29 +485,36 @@ window.MIST = window.MIST || {};
     constructor(x, y, vx, vy, kind, friendly) {
       super(x, y);
       this.vx = vx; this.vy = vy;
-      this.kind = kind;       // bubble / spore
+      this.kind = kind;       // bubble / bigBubble / spore
       this.friendly = friendly;
       this.t = 0;
       this.dead = false;
+      this.hitSet = new Set(); // 穿透弹已命中目标（防重复伤害）
     }
     update(dt, game) {
       this.t += dt;
       this.x += this.vx * dt;
       this.y += this.vy * dt;
+      const big = this.kind === 'bigBubble';
       // 碰墙消亡；机关水晶门例外：泡泡触碰即激活
       if (game.map.isSolidPx(this.x, this.y)) {
         const tx = Math.floor(this.x / 16), ty = Math.floor(this.y / 16);
         if (game.map.at(tx, ty) === '+') {
-          this.dead = true;
+          if (!big) this.dead = true;
           MIST.Battle.bubbleHitCrystal(tx, ty, game);
+          if (!big) return;
+        } else if (!big) {
+          this.dead = true;
+          MIST.Particles.burst(this.x, this.y, 5, this.friendly ? '#7de0d6' : '#dabfff', 30);
+          if (this.kind === 'bubble') MIST.Audio.sfx('bubblePop');
           return;
+        } else {
+          // 大泡泡撞墙减速反弹一次
+          this.vx *= -0.4; this.vy *= -0.4;
+          MIST.Particles.burst(this.x, this.y, 4, '#7de0d6', 25);
         }
-        this.dead = true;
-        MIST.Particles.burst(this.x, this.y, 5, this.friendly ? '#7de0d6' : '#dabfff', 30);
-        if (this.kind === 'bubble') MIST.Audio.sfx('bubblePop');
-        return;
       }
-      if (this.t > 2.2) this.dead = true;
+      if (this.t > (big ? 1.6 : 2.2)) this.dead = true;
       if (this.kind === 'spore') {
         // 孢子轻微追踪
         const p = game.player;
@@ -372,12 +524,12 @@ window.MIST = window.MIST || {};
       }
     }
     draw(ctx, cam) {
-      if (this.kind === 'bubble') {
+      if (this.kind === 'bubble' || this.kind === 'bigBubble') {
         const pulse = 1 + Math.sin(this.t * 12) * 0.12;
-        const s = S.bubble;
+        const s = this.kind === 'bigBubble' ? S.bigBubble : S.bubble;
         const w = s.width * pulse, h = s.height * pulse;
         ctx.drawImage(s, this.x - w / 2 - cam.x, this.y - h / 2 - cam.y, w, h);
-        MIST.Draw.light(ctx, this.x - cam.x, this.y - cam.y, 14, '#7de0d6', 0.35);
+        MIST.Draw.light(ctx, this.x - cam.x, this.y - cam.y, this.kind === 'bigBubble' ? 26 : 14, '#7de0d6', 0.4);
       } else {
         // 毒孢子
         const r = 3 + Math.sin(this.t * 10) * 0.6;
@@ -611,9 +763,9 @@ window.MIST = window.MIST || {};
   class Pickup extends Entity {
     constructor(x, y, kind) {
       super(x, y);
-      this.kind = kind; // heart / coin
+      this.kind = kind; // heart / coin / potion / shard
       this.t = Math.random() * 5;
-      this.life = 12;
+      this.life = kind === 'shard' ? 999 : 14;
     }
     update(dt, game) {
       this.t += dt;
@@ -622,8 +774,15 @@ window.MIST = window.MIST || {};
       const p = game.player;
       if (Math.hypot(p.x - this.x, p.y - this.y) < 12) {
         this.dead = true;
-        if (this.kind === 'heart') p.heal(2);
-        else {
+        if (this.kind === 'heart') {
+          p.heal(2);
+        } else if (this.kind === 'potion') {
+          p.heal(3);
+          MIST.Particles.burst(this.x, this.y - 6, 8, '#b13e53', 40);
+        } else if (this.kind === 'shard') {
+          game.flags['shard_' + game.sceneDef.id] = true; // 防止重进地图再刷
+          p.addShard(game);
+        } else {
           p.coins++;
           MIST.Audio.sfx('select');
           MIST.Particles.burst(this.x, this.y - 4, 6, '#ffcd75', 30);
@@ -634,6 +793,12 @@ window.MIST = window.MIST || {};
       const bob = Math.sin(this.t * 4) * 2;
       if (this.kind === 'heart') {
         ctx.drawImage(S.heart, Math.round(this.x - 3 - cam.x), Math.round(this.y - 10 + bob - cam.y));
+      } else if (this.kind === 'potion') {
+        ctx.drawImage(S.potion, Math.round(this.x - 4 - cam.x), Math.round(this.y - 12 + bob - cam.y));
+        MIST.Draw.light(ctx, this.x - cam.x, this.y - 8 - cam.y, 10, '#b13e53', 0.25);
+      } else if (this.kind === 'shard') {
+        ctx.drawImage(S.shard, Math.round(this.x - 4 - cam.x), Math.round(this.y - 11 + bob - cam.y));
+        MIST.Draw.light(ctx, this.x - cam.x, this.y - 7 - cam.y, 14, '#ff9db0', 0.35);
       } else {
         ctx.fillStyle = '#ffcd75';
         ctx.beginPath();
