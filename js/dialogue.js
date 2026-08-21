@@ -86,22 +86,23 @@ window.MIST = window.MIST || {};
       if (this.cooldown > 0) this.cooldown -= dt;
       if (!this.active || !this.current) return;
       const line = this.current.lines[this.page] || '';
-      if (this.chars < line.length) {
+      const visible = line.replace(/§/g, ''); // 标记不占打字机字符
+      if (this.chars < visible.length) {
         this.charT += dt * 28; // 打字速度
-        while (this.charT >= 1 && this.chars < line.length) {
+        while (this.charT >= 1 && this.chars < visible.length) {
           this.chars++;
           this.charT -= 1;
           if (this.chars % 2 === 0) MIST.Audio.sfx('talk');
         }
       }
       const E = MIST.Engine;
-      if (this.choiceMode && this.chars >= line.length) {
+      if (this.choiceMode && this.chars >= visible.length) {
         if (E.pressed('up') || E.pressed('left')) { this.choiceIndex = (this.choiceIndex + this.choices.length - 1) % this.choices.length; MIST.Audio.sfx('select'); }
         if (E.pressed('down') || E.pressed('right')) { this.choiceIndex = (this.choiceIndex + 1) % this.choices.length; MIST.Audio.sfx('select'); }
       }
       if (E.pressed('interact') || E.pressed('attack')) {
-        if (this.chars < line.length) {
-          this.chars = line.length; // 快进
+        if (this.chars < visible.length) {
+          this.chars = visible.length; // 快进
         } else if (this.choiceMode && this.current.choices) {
           const pick = this.choices[this.choiceIndex];
           this.choiceMode = false;
@@ -125,7 +126,12 @@ window.MIST = window.MIST || {};
       if (!this.active || !this.current) return;
       const E = MIST.Engine;
       const line = this.current.lines[this.page] || '';
-      const shown = line.slice(0, this.chars);
+      // 打字机截断：保留 § 标记，只截可见字符
+      let shown = '', n = 0;
+      for (const ch of line) {
+        if (ch === '§') { shown += ch; continue; }
+        if (n < this.chars) { shown += ch; n++; }
+      }
 
       // 对话框
       const bx = 14, by = 200, bw = 452, bh = 56;
@@ -148,21 +154,13 @@ window.MIST = window.MIST || {};
         MIST.Draw.text(ctx, name, bx + 12, by - 8, { size: 10, color: '#1a1c2c', shadow: null });
       }
 
-      // 文本（自动换行）
-      ctx.font = '10px "Courier New", "SimHei", monospace';
-      const maxW = bw - 24;
-      const charsPerLine = Math.floor(maxW / 10);
-      let text = shown;
-      let ty = by + 10;
-      while (text.length > 0) {
-        ctx.fillStyle = '#f4f4f4';
-        ctx.fillText(text.slice(0, charsPerLine), bx + 12, ty);
-        text = text.slice(charsPerLine);
-        ty += 13;
-      }
+      // 文本（富文本红字 + 逐字换行 + 打字机）
+      MIST.Draw.richWrap(ctx, shown, bx + 12, by + 10, bw - 24, {
+        size: 11, clipN: this.chars, color: '#f4f4f4', red: '#ff5a5a', lineH: 15,
+      });
 
       // 继续提示箭头
-      if (this.chars >= line.length) {
+      if (this.chars >= line.replace(/§/g, '').length) {
         if (this.choiceMode && this.current.choices) {
           // 选项列表
           this.current.choices.forEach((c, i) => {

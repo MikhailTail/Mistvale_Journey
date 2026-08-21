@@ -5,6 +5,8 @@ server_*.log
 pw_*.js
 pw_*.txt
 *.log
+.playwright-cli/
+commitmsg.txt
 
 # 系统文件
 Thumbs.db

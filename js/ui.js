@@ -137,41 +137,55 @@ window.MIST = window.MIST || {};
     D.text(ctx, chapterName, 10, 258, { size: 9, color: '#94b0c2' });
   }
 
-  /* ---------- 设置界面（音乐/音效 开关+音量） ---------- */
-  function drawSettings(ctx, sel, audioSettings) {
+  /* ---------- 设置界面（音乐/音效/存档管理） ---------- */
+  function drawSettings(ctx, sel, audioSettings, opts = {}) {
     ctx.fillStyle = 'rgba(13,14,22,.88)';
     ctx.fillRect(0, 0, 480, 270);
-    D.text(ctx, '— 设 置 —', 240, 34, { size: 16, color: '#ffcd75', align: 'center' });
+    D.text(ctx, '— 设 置 —', 240, 26, { size: 16, color: '#ffcd75', align: 'center' });
 
     const rows = [
       { label: '音 乐', type: 'toggle', value: audioSettings.musicOn },
       { label: '音乐音量', type: 'slider', value: audioSettings.musicVol },
       { label: '音 效', type: 'toggle', value: audioSettings.sfxOn },
       { label: '音效音量', type: 'slider', value: audioSettings.sfxVol },
+      { label: '保存进度', type: 'action', color: '#73eff7' },
+      { label: '读取存档', type: 'action', color: '#a7f070', value: opts.hasSave },
     ];
     rows.forEach((r, i) => {
-      const y = 84 + i * 30;
-      const selc = i === sel ? '#ffcd75' : '#94b0c2';
+      const y = 70 + i * 26;
+      const selc = i === sel ? '#ffcd75' : (r.color || '#94b0c2');
       D.text(ctx, (i === sel ? '▶ ' : '  ') + r.label, 120, y, { size: 12, color: selc });
       if (r.type === 'toggle') {
         const on = r.value;
-        // 开关图形
         ctx.fillStyle = on ? '#38b764' : '#5d275d';
         ctx.fillRect(290, y - 2, 34, 14);
         ctx.fillStyle = '#f4f4f4';
         ctx.fillRect(on ? 310 : 292, y, 12, 10);
         D.text(ctx, on ? '开' : '关', 340, y, { size: 11, color: on ? '#a7f070' : '#b13e53' });
-      } else {
-        // 音量条（10 格）
+      } else if (r.type === 'slider') {
         const n = Math.round(r.value * 10);
         for (let b = 0; b < 10; b++) {
           ctx.fillStyle = b < n ? (b < 4 ? '#b13e53' : b < 7 ? '#ef7d57' : '#a7f070') : '#333c57';
           ctx.fillRect(290 + b * 10, y - 1, 7, 12);
         }
         D.text(ctx, '' + n, 396, y, { size: 11, color: '#94b0c2' });
+      } else if (r.type === 'action') {
+        // 动作项：右侧显示状态说明
+        if (r.label === '保存进度') {
+          D.text(ctx, '冻结此刻', 290, y, { size: 11, color: i === sel ? '#73eff7' : '#566c86' });
+        } else {
+          D.text(ctx, opts.hasSave ? '有存档' : '无存档', 290, y, { size: 11, color: opts.hasSave ? '#a7f070' : '#566c86' });
+        }
       }
     });
-    D.text(ctx, 'A/D 或 ←/→ 调整 · W/S 选择 · E 返回', 240, 224, { size: 10, color: '#566c86', align: 'center' });
+    D.text(ctx, 'W/S 选择 · A/D 或 ←/→ 调整 · E 确认/返回', 240, 232, { size: 10, color: '#566c86', align: 'center' });
+    // 操作结果消息（如"已保存"）
+    if (opts.msg && opts.msgT > 0) {
+      ctx.globalAlpha = Math.min(1, opts.msgT);
+      MIST.Draw.panel(ctx, 140, 246, 200, 18, { bg: '#29366f', border: '#73eff7' });
+      D.text(ctx, opts.msg, 240, 249, { size: 10, color: '#73eff7', align: 'center' });
+      ctx.globalAlpha = 1;
+    }
   }
 
   /* ---------- 暂停菜单 ---------- */

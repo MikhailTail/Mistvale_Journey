@@ -74,6 +74,7 @@ MIST.Battle = (function () {
     const key = tx + ',' + ty;
     if (game.map.crystals[key]) return false;
     game.map.crystals[key] = true;
+    game.flags['crystal_' + game.sceneDef.id + '_' + key] = true; // 持久化
     MIST.Audio.sfx('questDone');
     MIST.Particles.burst(tx * 16 + 8, ty * 16 + 8, 14, '#7de0d6', 60);
     game.shake(3, 0.2);

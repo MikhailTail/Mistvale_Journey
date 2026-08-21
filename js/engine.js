@@ -115,20 +115,80 @@ MIST.Engine = (function () {
 
 /* ---------- 通用绘制工具 ---------- */
 MIST.Draw = {
-  // 带描边的像素感文字
+  // 清晰像素感文字：微软雅黑粗体 + 四向粗描边 + 整数坐标
   text(ctx, str, x, y, opts = {}) {
-    const size = opts.size || 8;
+    const size = opts.size || 10;
     const color = opts.color || '#f4f4f4';
     const shadow = opts.shadow === undefined ? '#1a1c2c' : opts.shadow;
-    ctx.font = `${opts.bold ? 'bold ' : ''}${size}px "Courier New", "SimHei", monospace`;
+    ctx.font = `${opts.bold === false ? '' : 'bold '}${size}px "Microsoft YaHei","PingFang SC","SimHei",sans-serif`;
     ctx.textAlign = opts.align || 'left';
     ctx.textBaseline = opts.baseline || 'top';
+    x = Math.round(x); y = Math.round(y);
     if (shadow) {
       ctx.fillStyle = shadow;
       ctx.fillText(str, x + 1, y + 1);
+      ctx.fillText(str, x - 1, y + 1);
+      ctx.fillText(str, x + 1, y - 1);
+      ctx.fillText(str, x, y + 2);
     }
     ctx.fillStyle = color;
     ctx.fillText(str, x, y);
+  },
+  /* 富文本绘制：§红字§ 标记（关键剧情/人物/道具）
+   * richWrap：逐字测量自动换行；clipN 只绘制前 N 个可见字符（打字机用）；返回行数 */
+  _richSeg(ctx, seg, isRed, redColor, baseColor, shadow, x, y) {
+    const color = isRed ? redColor : baseColor;
+    if (shadow) {
+      ctx.fillStyle = shadow;
+      ctx.fillText(seg, x + 1, y + 1);
+      ctx.fillText(seg, x - 1, y + 1);
+      ctx.fillText(seg, x + 1, y - 1);
+      ctx.fillText(seg, x, y + 2);
+    }
+    ctx.fillStyle = color;
+    ctx.fillText(seg, x, y);
+  },
+  // 逐字测量自动换行的富文本绘制（返回总行数）
+  richWrap(ctx, str, x, y, maxW, opts = {}) {
+    const size = opts.size || 10;
+    ctx.font = `${opts.bold === false ? '' : 'bold '}${size}px "Microsoft YaHei","PingFang SC","SimHei",sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = opts.baseline || 'top';
+    const clip = opts.clipN === undefined ? Infinity : opts.clipN;
+    const redC = opts.red || '#ff5a5a';
+    const baseC = opts.color || '#f4f4f4';
+    const shadow = opts.shadow === undefined ? '#1a1c2c' : opts.shadow;
+    // 展开为 [字符, 是否红] 序列
+    const chars = [];
+    let red = false;
+    for (const ch of str) {
+      if (ch === '§') { red = !red; continue; }
+      chars.push([ch, red]);
+    }
+    let lineChars = [], drawn = 0, ly = y, lines = 0;
+    const flush = () => {
+      // 按红白分段绘制当前行
+      let seg = '', segRed = null, lx = x;
+      for (const [ch, r] of lineChars) {
+        if (segRed === null) { segRed = r; }
+        if (r !== segRed) {
+          this._richSeg(ctx, seg, segRed, redC, baseC, shadow, lx, ly);
+          lx += ctx.measureText(seg).width;
+          seg = ''; segRed = r;
+        }
+        seg += ch;
+      }
+      if (seg) this._richSeg(ctx, seg, segRed, redC, baseC, shadow, lx, ly);
+      lineChars = []; ly += (opts.lineH || size + 4); lines++;
+    };
+    for (const cr of chars) {
+      if (drawn >= clip) break;
+      const lineStr = lineChars.map((c) => c[0]).join('') + cr[0];
+      if (lineChars.length && ctx.measureText(lineStr).width > maxW) flush();
+      lineChars.push(cr); drawn++;
+    }
+    if (lineChars.length > 0) flush();
+    return lines;
   },
   // 像素风圆角矩形对话框底
   panel(ctx, x, y, w, h, opts = {}) {

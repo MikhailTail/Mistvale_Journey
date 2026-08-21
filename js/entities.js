@@ -111,11 +111,11 @@ window.MIST = window.MIST || {};
         this.hp = this.maxHp;
         MIST.Particles.burst(this.x, this.y - 10, 20, '#ef7d57', 70);
         game.dialogue.start([
-          { who: 'narrator', lines: ['【心之碎片】三枚碎片合而为一！生命上限提升了！', '（当前上限：' + (this.maxHp / 2) + ' 颗心）'] },
+          { who: 'narrator', lines: ['【§心之碎片§】三枚碎片合而为一！§生命上限提升§了！', '（当前上限：' + (this.maxHp / 2) + ' 颗心）'] },
         ]);
       } else {
         game.dialogue.start([
-          { who: 'narrator', lines: ['【心之碎片】获得一枚心之碎片（' + this.shards + '/3）。', '集满三枚，生命上限便会提升。'] },
+          { who: 'narrator', lines: ['【§心之碎片§】获得一枚心之碎片（' + this.shards + '/3）。', '集满三枚，§生命上限§便会提升。'] },
         ]);
       }
     }
@@ -197,8 +197,10 @@ window.MIST = window.MIST || {};
       }
       if (game.dialogActive()) { this.charging = false; this.chargeT = 0; return; }
 
-      /* 蓄力攻击（2D 塞尔达）：按住 J 蓄力，松开释放 */
-      if (E.down('attack') && this.attackCd <= 0) {
+      /* 蓄力攻击（2D 塞尔达）：按住 J 蓄力，松开释放；轻点即普攻 */
+      const held = E.down('attack');
+      const tapped = E.pressed('attack');
+      if (held && this.attackCd <= 0) {
         if (!this.charging) { this.charging = true; this.chargeT = 0; }
         this.chargeT = Math.min(1, this.chargeT + dt);
         // 蓄力粒子
@@ -211,7 +213,7 @@ window.MIST = window.MIST || {};
         }
         return;
       }
-      if (this.charging && !E.down('attack')) {
+      if (this.charging && !held) {
         // 松开：根据蓄力时长选择攻击方式
         const charged = this.chargeT >= 0.45;
         this.charging = false; this.chargeT = 0;
@@ -224,6 +226,12 @@ window.MIST = window.MIST || {};
           else this.bubbleAttack(game);
         }
         return;
+      }
+      // 轻点（按下与松开发生在同一帧，未形成按住状态）→ 直接普攻
+      if (tapped && !held && !this.charging && this.attackCd <= 0) {
+        this.attackDir = this.facing;
+        if (this.active === 'loen') this.panAttack(game);
+        else this.bubbleAttack(game);
       }
     }
 

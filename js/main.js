@@ -16,6 +16,8 @@ window.MIST = window.MIST || {};
       this.pauseSel = 0; this.deathT = 0; this.endingT = 0;
       this.settingsSel = 0;   // 设置界面选中项
       this.settingsFrom = 'title'; // 设置返回目标
+      this.settingsMsg = '';  // 设置操作提示消息
+      this.settingsMsgT = 0;  // 消息显示计时
       this.shakeT = 0; this.shakeN = 0;
       this.dialogue = new MIST.DialogueSystem(this);
       this.cam = { x: 0, y: 0 };
@@ -56,6 +58,8 @@ window.MIST = window.MIST || {};
       MIST.Particles.clear();
       MIST.Audio.playMusic(def.music);
       this.player.soloMode = false; // 新场景默认跟随模式
+      // 恢复持久化状态（已激活水晶门 / 已开锁门）
+      this.map.restorePersistent(this.flags, id);
       // 章节卡
       if (def.chapterCard && !this.flags['card_' + id]) {
         this.cardData = def.chapterCard;
@@ -228,7 +232,7 @@ window.MIST = window.MIST || {};
         MIST.Audio.sfx('questDone');
         MIST.Particles.burst(p.x, p.y - 8, 10, '#ffcd75', 45);
         this.dialogue.start([
-          { who: 'narrator', lines: ['【钥匙】捡到一把生锈的钥匙。', '似乎能打开某扇锁住的门……'] },
+          { who: 'narrator', lines: ['【§钥匙§】捡到一把生锈的§钥匙§。', '似乎能打开某扇§锁住的门§……'] },
         ]);
       }
 
@@ -240,19 +244,28 @@ window.MIST = window.MIST || {};
         if (p.keys > 0) {
           p.keys--;
           this.map.setTile(mtx, mty, '.');
+          this.flags['door_' + this.sceneDef.id + '_' + mtx + ',' + mty] = true; // 持久化
           MIST.Audio.sfx('door');
           MIST.Audio.sfx('questDone');
           MIST.Particles.burst(mtx * 16 + 8, mty * 16 + 8, 12, '#ffcd75', 50);
           this.dialogue.start([
-            { who: 'narrator', lines: ['咔哒——钥匙转动，锁开了。'] },
+            { who: 'narrator', lines: ['咔哒——§钥匙转动，锁开了§。'] },
           ]);
         } else {
           MIST.Audio.sfx('hurt');
           this.dialogue.start([
-            { who: 'narrator', lines: ['门锁得死死的。需要一把钥匙。'] },
+            { who: 'narrator', lines: ['门锁得死死的。需要一把§钥匙§。'] },
           ]);
         }
       }
+
+      // 冰箱存档点交互（面向 'F' 按 E → 存档 + 回满血）
+      const ftx = Math.floor((p.x + fx[0] * 20) / 16), fty = Math.floor((p.y - 6 + fx[1] * 20) / 16);
+      if (this.map.at(ftx, fty) === 'F' && E.pressed('interact') && !(this.dialogue.cooldown > 0)) {
+        this.saveGame(ftx, fty);
+      }
+      // 冰箱发光计时衰减
+      if (this.map.fridgeGlow > 0) this.map.fridgeGlow -= dt;
 
       // 拾取物
       for (const pk of this.pickups) pk.update(dt, this);
@@ -349,12 +362,36 @@ window.MIST = window.MIST || {};
       }
     }
 
-    /* 设置界面：音乐/音效开关 + 音量调节（即时生效） */
+    /* 设置界面：音乐/音效开关 + 音量调节 + 保存/读取（即时生效） */
     updateSettings(dt) {
       const A = MIST.Audio;
-      const nRows = 4;
+      const nRows = 6;
+      if (this.settingsMsgT > 0) this.settingsMsgT -= dt;
       if (E.pressed('up')) { this.settingsSel = (this.settingsSel + nRows - 1) % nRows; MIST.Audio.sfx('select'); }
       if (E.pressed('down')) { this.settingsSel = (this.settingsSel + 1) % nRows; MIST.Audio.sfx('select'); }
+      const showMsg = (msg) => { this.settingsMsg = msg; this.settingsMsgT = 2; };
+
+      // 保存 / 读取（第 5、6 行）
+      const doAction = () => {
+        if (this.settingsSel === 4) {
+          // 保存进度（仅游戏中）
+          if (this.settingsFrom === 'pause' && this.sceneDef) {
+            this.saveGame();
+            showMsg('已保存！');
+          } else {
+            showMsg('标题界面不能保存');
+          }
+        } else if (this.settingsSel === 5) {
+          if (this.hasSave()) {
+            if (this.loadGame()) { showMsg('读取成功！'); return true; } // 读档直接进入游戏
+            showMsg('存档已损坏');
+          } else {
+            showMsg('没有存档');
+          }
+        }
+        return false;
+      };
+
       const adj = (d) => {
         const s = A.settings;
         if (this.settingsSel === 0) A.setMusicOn(!s.musicOn);
@@ -363,13 +400,80 @@ window.MIST = window.MIST || {};
         else if (this.settingsSel === 3) A.setSfxVol(s.sfxVol + d * 0.1);
         MIST.Audio.sfx('select');
       };
-      if (E.pressed('left')) adj(-1);
-      if (E.pressed('right')) adj(1);
-      if (E.pressed('interact') || E.pressed('menu')) {
+      if (this.settingsSel <= 3) {
+        if (E.pressed('left')) adj(-1);
+        if (E.pressed('right')) adj(1);
+      } else {
+        // 保存/读取行：左右键或 E 均可触发
+        if (E.pressed('left') || E.pressed('right')) { if (doAction()) return; }
+      }
+      if (E.pressed('interact')) {
+        if (this.settingsSel >= 4) {
+          if (doAction()) return; // 读档成功已切场景
+          MIST.Audio.sfx('select');
+          return;
+        }
         MIST.Audio.sfx('select');
         this.state = this.settingsFrom;
-        if (this.settingsFrom === 'pause') this.pauseSel = 0; // 返回时回到"继续冒险"
+        if (this.settingsFrom === 'pause') this.pauseSel = 0;
+        return;
       }
+      if (E.pressed('menu')) {
+        MIST.Audio.sfx('select');
+        this.state = this.settingsFrom;
+        if (this.settingsFrom === 'pause') this.pauseSel = 0;
+      }
+    }
+
+    /* ---------- 存档系统（冰箱存档点 / 设置界面） ---------- */
+    saveGame(fridgeTx, fridgeTy) {
+      const p = this.player;
+      const fromFridge = fridgeTx !== undefined;
+      const data = {
+        v: 1,
+        scene: this.sceneDef.id,
+        // 重生点：冰箱旁边（面向冰箱的站位）；从设置保存时用场景出生点
+        spawn: fromFridge ? { x: fridgeTx * 16 + 8, y: (fridgeTy + 1) * 16 + 12 } : null,
+        player: {
+          hp: p.hp, maxHp: p.maxHp, coins: p.coins, keys: p.keys,
+          shards: p.shards, active: p.active,
+        },
+        flags: this.flags,
+        time: Date.now(),
+      };
+      try {
+        localStorage.setItem('mistvale_save', JSON.stringify(data));
+      } catch (e) { /* 隐私模式等场景静默失败 */ }
+      if (fromFridge) {
+        this.map.fridgeGlow = 1.2;
+        p.hp = p.maxHp; // 塞尔达式存档点：回满血
+        MIST.Particles.burst(fridgeTx * 16 + 8, fridgeTy * 16 + 8, 16, '#73eff7', 60);
+        this.dialogue.start([
+          { who: 'narrator', lines: ['§咕噜噜噜——§冰箱发出满足的嗡鸣。', '【已保存】旅途的痕迹被冻进了冰格。（§生命完全恢复§）'] },
+        ]);
+      } else {
+        MIST.Audio.sfx('questDone');
+      }
+    }
+
+    hasSave() {
+      try { return !!localStorage.getItem('mistvale_save'); } catch (e) { return false; }
+    }
+
+    loadGame() {
+      let data = null;
+      try { data = JSON.parse(localStorage.getItem('mistvale_save')); } catch (e) { return false; }
+      if (!data || !MIST.STORY.scenes[data.scene]) return false;
+      this.flags = data.flags || {};
+      this.loadScene(data.scene, data.spawn || undefined);
+      const p = this.player;
+      Object.assign(p, data.player || {});
+      this.state = 'play';
+      MIST.Audio.sfx('heal');
+      this.dialogue.start([
+        { who: 'narrator', lines: ['【读取存档】冰格里的记忆解冻了。', '「继续吧，旅途还没到终点。」'] },
+      ]);
+      return true;
     }
 
     /* ---------- 事件回调 ---------- */
@@ -379,14 +483,15 @@ window.MIST = window.MIST || {};
       MIST.Audio.stopMusic();
     }
     onBossDefeated() {
+      this.flags.bossDefeated = true; // 持久化：Boss 不再重生
       MIST.Audio.stopMusic();
       this.dialogue.start([
-        { who: 'narrator', lines: ['菌王倒下。巨大的菌盖炸开，化作千万片光尘。'] },
-        { who: 'sprout', lines: ['……在消失。雾在消失！洛恩，你看！'] },
-        { who: 'narrator', lines: ['芽光如潮水漫过林海，漫过草原，漫过矿井的每一层。', '地底三百米的人们涌上矿道，看见了四十年来的第一片晴空。'] },
+        { who: 'narrator', lines: ['§菌王§倒下。巨大的菌盖炸开，化作千万片光尘。'] },
+        { who: 'sprout', lines: ['……在消失。§雾在消失§！洛恩，你看！'] },
+        { who: 'narrator', lines: ['§芽光§如潮水漫过林海，漫过草原，漫过矿井的每一层。', '地底三百米的人们涌上矿道，看见了§四十年来的第一片晴空§。'] },
         { who: 'loen', lines: ['……走了。'] },
         { who: 'sprout', lines: ['去哪儿？'] },
-        { who: 'loen', lines: ['下一站，晴原。'] },
+        { who: 'loen', lines: ['下一站，§晴原§。'] },
       ], () => {
         this.fadeTo(() => {
           this.state = 'ending';
@@ -404,7 +509,9 @@ window.MIST = window.MIST || {};
         case 'title': U.drawTitle(ctx, this.time); break;
         case 'card': U.drawChapterCard(ctx, this.cardData[0], this.cardData[1], this.cardT); break;
         case 'play': case 'pause': case 'help': case 'dead': this.drawWorld(ctx); break;
-        case 'settings': U.drawSettings(ctx, this.settingsSel, MIST.Audio.settings); break;
+        case 'settings': U.drawSettings(ctx, this.settingsSel, MIST.Audio.settings, {
+          hasSave: this.hasSave(), msg: this.settingsMsg, msgT: this.settingsMsgT,
+        }); break;
         case 'ending': U.drawEnding(ctx, this.endingT); break;
       }
 
@@ -474,13 +581,24 @@ window.MIST = window.MIST || {};
       // 5. HUD
       MIST.UI.drawHUD(ctx, this.player, this.sceneDef.name);
 
-      // 交互提示（靠近NPC时）
+      // 交互提示（靠近NPC/冰箱时）
       if (this.state === 'play' && !this.dialogue.active) {
+        let shown = false;
         for (const n of this.npcs) {
           if (Math.hypot(n.x - p.x, n.y - p.y) < 26) {
             const bob = Math.sin(this.time * 5) * 2;
             MIST.Draw.text(ctx, 'E', n.x - cam.x, n.y - 34 + bob, { size: 10, color: '#ffcd75', align: 'center' });
+            shown = true;
             break;
+          }
+        }
+        if (!shown) {
+          // 面向冰箱时提示"存档"
+          const fd = { down: [0, 1], up: [0, -1], left: [-1, 0], right: [1, 0] }[p.facing];
+          const ftx2 = Math.floor((p.x + fd[0] * 20) / 16), fty2 = Math.floor((p.y - 6 + fd[1] * 20) / 16);
+          if (this.map.at(ftx2, fty2) === 'F') {
+            const bob = Math.sin(this.time * 5) * 2;
+            MIST.Draw.text(ctx, 'E 存档', ftx2 * 16 + 8 - cam.x, fty2 * 16 - 26 + bob, { size: 10, color: '#73eff7', align: 'center' });
           }
         }
       }

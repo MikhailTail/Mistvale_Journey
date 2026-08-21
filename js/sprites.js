@@ -799,6 +799,62 @@ window.MIST = window.MIST || {};
     '..4.....',
     '..44....',
   ]);
+  /* ---------- 冰箱存档点（致敬《风来之国》格林堡冰箱） ---------- */
+  // 16x24：上冷冻室 + 下冷藏室 + 发光指示灯
+  S.fridge = mk([
+    '...dddddddddd...',
+    '..doooooooooo d..',
+    '..doccccccccod ..',
+    '..doc444444cod ..',
+    '..doc4xx444cod ..',
+    '..doccccccccod ..',
+    '..dmmmmmmmmmmd ..',
+    '..doooooooooo d..',
+    '..doccccccccod ..',
+    '..doccccccc4od ..',
+    '..docccccc44od ..',
+    '..docccccc4cod ..',
+    '..docccccccod ..',
+    '..doccccccccod ..',
+    '..dommmmmmmmod ..',
+    '..doooooooooo d..',
+    '..doccccccccod ..',
+    '..doccccccccod ..',
+    '..dommmmmmmmod ..',
+    '..doeeeeeeeo d..',
+    '..doe0e0e0e0od ..',
+    '..dddddddddddd..',
+    '................',
+    '................',
+  ]);
+  // 冰箱开灯版（保存瞬间发光）
+  S.fridgeOn = mk([
+    '...dddddddddd...',
+    '..doooooooooo d..',
+    '..doxxxxxxxxod ..',
+    '..dox4xx444xod ..',
+    '..dox4xx444xod ..',
+    '..doxxxxxxxxod ..',
+    '..dmmmmmmmmmmd ..',
+    '..doooooooooo d..',
+    '..doxxxxxxxxod ..',
+    '..doxxxxxxx4od ..',
+    '..doxxxxxx44od ..',
+    '..doxxxxxx4xod ..',
+    '..doxxxxxxxxod ..',
+    '..doxxxxxxxxod ..',
+    '..dommmmmmmmod ..',
+    '..doooooooooo d..',
+    '..doxxxxxxxxod ..',
+    '..doxxxxxxxxod ..',
+    '..dommmmmmmmod ..',
+    '..doeeeeeeeo d..',
+    '..doe4e4e4e4od ..',
+    '..dddddddddddd..',
+    '................',
+    '................',
+  ]);
+
   // 大泡泡（小芽蓄力攻击）
   S.bigBubble = mk([
     '....wwwwww....',

@@ -274,6 +274,7 @@ window.MIST = window.MIST || {};
       this.pxH = this.h * TS;
       this.crystals = {}; // 机关激活状态 key: tx,ty
       this.plates = (def.plates || []).map((p) => ({ ...p, on: false }));
+      this.fridgeGlow = 0; // 冰箱保存时的发光计时
     }
 
     at(tx, ty) {
@@ -291,7 +292,23 @@ window.MIST = window.MIST || {};
       if (c === '+') return !this.crystals[tx + ',' + ty]; // 机关未激活时为障碍
       if (c === 'G') return true;  // 压力板机关门（由板联动控制开合）
       if (c === 'M') return true;  // 锁门（钥匙开启后变 '.'）
+      if (c === 'F') return true;  // 冰箱存档点（实体障碍）
       return '#~TBXLrO'.includes(c);
+    }
+
+    /* 恢复持久化状态：已激活的水晶门 / 已开的锁门（来自游戏 flags） */
+    restorePersistent(flags, sceneId) {
+      for (let ty = 0; ty < this.h; ty++) {
+        for (let tx = 0; tx < this.w; tx++) {
+          const c = this.tiles[ty][tx];
+          const key = tx + ',' + ty;
+          if (c === '+' && flags['crystal_' + sceneId + '_' + key]) {
+            this.crystals[key] = true;
+          } else if (c === 'M' && flags['door_' + sceneId + '_' + key]) {
+            this.tiles[ty][tx] = '.';
+          }
+        }
+      }
     }
 
     isSolidPx(x, y) {
@@ -341,6 +358,13 @@ window.MIST = window.MIST || {};
               ctx.drawImage(this.T.floor[v % this.T.floor.length], dx, dy);
               const plate = this.plates.find((p) => p.x === tx && p.y === ty);
               ctx.drawImage(plate && plate.on ? this.T.plateOn : this.T.plate, dx, dy);
+              break;
+            }
+            case 'F': {
+              // 冰箱存档点：微微浮动 + 顶部指示灯呼吸
+              ctx.drawImage(this.T.floor[v % this.T.floor.length], dx, dy);
+              const spr = (this.fridgeGlow > 0) ? MIST.Sprites.fridgeOn : MIST.Sprites.fridge;
+              ctx.drawImage(spr, dx, dy - 8);
               break;
             }
             case ',': // 小路
@@ -457,6 +481,10 @@ window.MIST = window.MIST || {};
             lights.push({ x: tx * TS + 8, y: ty * TS - 12, r: 42 * fl, color: '#ffcd75', a: 0.5 });
           } else if (c === '+' && this.crystals[tx + ',' + ty]) {
             lights.push({ x: tx * TS + 8, y: ty * TS + 8, r: 36, color: '#7de0d6', a: 0.55 });
+          } else if (c === 'F') {
+            // 冰箱冷光（保存瞬间更亮）
+            const boost = this.fridgeGlow > 0 ? 1.8 : 1;
+            lights.push({ x: tx * TS + 8, y: ty * TS, r: 34 * boost, color: '#73eff7', a: 0.4 * boost });
           }
         }
       }
