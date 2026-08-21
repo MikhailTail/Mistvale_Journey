@@ -11,3 +11,8 @@ commitmsg.txt
 # 系统文件
 Thumbs.db
 .DS_Store
+
+# 依赖（仅用于本地验证，非游戏运行所需）
+node_modules/
+package-lock.json
+package.json

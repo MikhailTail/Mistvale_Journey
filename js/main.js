@@ -108,6 +108,15 @@ window.MIST = window.MIST || {};
       }
     }
 
+    /* 显示章节过渡卡；onDone 在玩家推进后调用（默认进入 play） */
+    showChapterCard(data, onDone) {
+      this.cardData = data;
+      this.cardT = 0;
+      this.cardDone = onDone || null;
+      this.state = 'card';
+      MIST.Audio.sfx('select');
+    }
+
     /* ---------- 主更新 ---------- */
     update(dt) {
       this.time += dt;
@@ -139,9 +148,16 @@ window.MIST = window.MIST || {};
           this.cardT += dt;
           if (this.cardT > 2.4 || E.pressed('interact')) {
             this.state = 'play';
+            const cb = this.cardDone;
+            this.cardDone = null;
+            if (cb) cb();
           }
           break;
         case 'play': this.updatePlay(dt); break;
+        case 'cinematic':
+          if (E.pressed('interact') || E.pressed('menu')) MIST.Cutscene.advance();
+          MIST.Cutscene.update(dt);
+          break;
         case 'pause': this.updatePause(dt); break;
         case 'help':
           if (E.pressed('interact') || E.pressed('menu')) this.state = 'pause';
@@ -485,19 +501,63 @@ window.MIST = window.MIST || {};
     onBossDefeated() {
       this.flags.bossDefeated = true; // 持久化：Boss 不再重生
       MIST.Audio.stopMusic();
+      // 第一幕：雾散 · 世界观揭示（对话形式）
       this.dialogue.start([
         { who: 'narrator', lines: ['§菌王§倒下。巨大的菌盖炸开，化作千万片光尘。'] },
         { who: 'sprout', lines: ['……在消失。§雾在消失§！洛恩，你看！'] },
         { who: 'narrator', lines: ['§芽光§如潮水漫过林海，漫过草原，漫过矿井的每一层。', '地底三百米的人们涌上矿道，看见了§四十年来的第一片晴空§。'] },
-        { who: 'loen', lines: ['……走了。'] },
-        { who: 'sprout', lines: ['去哪儿？'] },
-        { who: 'loen', lines: ['下一站，§晴原§。'] },
+        { who: 'loen', lines: ['这雾……是它替这片土地挡下了外面的东西。'] },
+        { who: 'sprout', lines: ['你是说，雾野不是牢笼，是§盾§？'] },
+        { who: 'loen', lines: ['四十年前，天裂了一道缝。雾从缝里漫进来，把世界裹进了睡眠。', '可总有些东西，在雾的下面跑——比如那列§列车§。'] },
+        { who: 'sprout', lines: ['列车？'] },
+        { who: 'loen', lines: ['§雾野列车§。它不在任何时刻停靠，只认醒来的人。', '地底的老人说，它从雾里来，开往§晴原§——裂缝那头唯一还亮着的地方。'] },
       ], () => {
-        this.fadeTo(() => {
-          this.state = 'ending';
-          this.endingT = 0;
-          MIST.Audio.playMusic('ending');
-        });
+        this.startTrainCutscene();
+      });
+    }
+
+    /* 列车过场：镜头特写 + 字幕 + 列车驶入 + 过渡至新章节《晴原》 */
+    startTrainCutscene() {
+      const p = this.player;
+      const px = p.x, py = p.y;
+      MIST.Audio.playMusic('ending'); // 舒缓的过渡旋律
+      MIST.Cutscene.play(this, {
+        train: { tx: px + 150, ty: py, dur: 3.0 },
+        shots: [
+          // 0. 黑幕渐显：雾散后的林海
+          { type: 'fade', dir: 'in', dur: 1.4 },
+          // 1. 镜头特写：小芽的脸（仰头看天）
+          { type: 'focus', tx: px, ty: py - 10, zoom: 2.4, dur: 1.6, sfx: 'select' },
+          { type: 'text', who: 'sprout', lines: ['天……是蓝的。我只在爷爷的画里见过。'], dur: 3.0 },
+          // 2. 镜头拉远：两人站在林间空地
+          { type: 'focus', tx: px, ty: py, zoom: 1.0, dur: 2.0 },
+          { type: 'text', who: 'loen', lines: ['走吧。站台在那边——你听，铁轨在响。'], dur: 3.0 },
+          // 3. 镜头右移：聚焦右侧站台，列车驶入特写
+          { type: 'focus', tx: px + 150, ty: py, zoom: 1.4, dur: 2.4, sfx: 'door' },
+          { type: 'wait', dur: 3.0 }, // 列车动画驶入停靠
+          { type: 'text', who: 'narrator', lines: ['远处的雾被一声汽笛劈开。§雾野列车§披着暖光驶出银白，停靠在长满青苔的站台。'], dur: 4.0 },
+          // 4. 镜头推近车头：头灯暖光
+          { type: 'focus', tx: px + 150, ty: py - 12, zoom: 2.2, dur: 2.0 },
+          { type: 'text', who: 'sprout', lines: ['它的灯，像有人在里面等我们很久了。'], dur: 3.0 },
+          // 5. 上车：两人走向列车，淡出到黑
+          { type: 'focus', tx: px + 110, ty: py, zoom: 1.2, dur: 2.2, sfx: 'select' },
+          { type: 'text', who: 'loen', lines: ['下一站，§晴原§。抓稳了，小芽。'], dur: 2.8 },
+          { type: 'fade', dir: 'out', dur: 1.6 },
+          // 6. 章节过渡卡：《晴原》
+          { type: 'wait', dur: 0.4 },
+        ],
+        onDone: () => {
+          this.fadeTo(() => {
+            this.showChapterCard(
+              ['晴原', 'QIYUAN — THE SUNLIT PLAINS'],
+              '裂缝那头，第一片亮着的土地。',
+              () => {
+                this.state = 'ending';
+                this.endingT = 0;
+              }
+            );
+          });
+        },
       });
     }
     onCrystalActivated() { /* 预留 */ }
@@ -512,6 +572,7 @@ window.MIST = window.MIST || {};
         case 'settings': U.drawSettings(ctx, this.settingsSel, MIST.Audio.settings, {
           hasSave: this.hasSave(), msg: this.settingsMsg, msgT: this.settingsMsgT,
         }); break;
+        case 'cinematic': MIST.Cutscene.draw(ctx); break;
         case 'ending': U.drawEnding(ctx, this.endingT); break;
       }
 
