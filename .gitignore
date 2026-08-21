@@ -1,0 +1,11 @@
+# 运行日志
+server_*.log
+
+# 开发临时文件
+pw_*.js
+pw_*.txt
+*.log
+
+# 系统文件
+Thumbs.db
+.DS_Store

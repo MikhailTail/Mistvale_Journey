@@ -1,0 +1,65 @@
+html, body {
+  margin: 0; padding: 0;
+  background: #0d0e16;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Courier New", monospace;
+}
+
+#game-wrap {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, #141526 0%, #0d0e16 70%);
+}
+
+#game {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  -ms-interpolation-mode: nearest-neighbor;
+  background: #000;
+  box-shadow: 0 0 60px rgba(65, 166, 246, .12), 0 0 120px rgba(0,0,0,.8);
+  touch-action: none;
+}
+
+/* CRT 扫描线滤镜 — 致敬《风来之国》的复古质感 */
+#crt {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0)   0px,
+    rgba(0, 0, 0, 0)   2px,
+    rgba(0, 0, 0, .16) 3px,
+    rgba(0, 0, 0, 0)   4px
+  );
+  mix-blend-mode: multiply;
+  z-index: 10;
+}
+
+/* 屏幕暗角 */
+#vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,.45) 100%);
+  z-index: 11;
+}
+
+#loading {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffcd75;
+  font-size: 18px;
+  letter-spacing: 4px;
+  background: #0d0e16;
+  z-index: 99;
+  transition: opacity .4s;
+}
+#loading.hide { opacity: 0; pointer-events: none; }
